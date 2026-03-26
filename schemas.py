@@ -85,6 +85,7 @@ class BlogResponse(BaseModel):
     content: str
     created_at: datetime
     updated_at: datetime
+    is_liked: bool = False
     author: BlogAuthor
     images: List[ImageResponse] = []
     comments: List["CommentResponse"] = []

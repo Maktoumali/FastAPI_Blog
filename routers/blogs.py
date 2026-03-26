@@ -17,15 +17,16 @@ router = APIRouter(prefix="/blogs", tags=["Blogs"])
 @router.get("/list", response_model=BlogListResponse)
 def list_blogs(
     db: Session = Depends(get_db),
-    filters: BlogFilter = Depends()
+    filters: BlogFilter = Depends(),
+    current_user: Optional[User] = Depends(get_current_user)
 ):
-    """List all blog posts with search and filtering. No authentication required."""
-    
+    """List all blog posts with search and filtering."""
+
     page = filters.page or 1
     per_page = filters.per_page or 10
 
     query = db.query(Blog)
-    
+
     # Author filter
     filter_map = {
         "author_id": Blog.author_id,
@@ -36,16 +37,20 @@ def list_blogs(
     if filters.search:
         search_attr = f"%{filters.search}%"
         query = query.filter(
-            or_(
-                Blog.title.ilike(search_attr)
-            )
+            or_(Blog.title.ilike(search_attr))
         )
 
     from sqlalchemy import func
-    query = query.outerjoin(Like).group_by(Blog.id).add_columns(func.count(Like.id).label("like_count"))
+
+    # 👇 Join Like table
+    query = (
+        query.outerjoin(Like)
+        .group_by(Blog.id)
+        .add_columns(func.count(Like.id).label("like_count"))
+    )
 
     qs_count = query.count()
-    
+
     results = (
         query.options(selectinload(Blog.author), selectinload(Blog.images))
         .order_by(Blog.created_at.desc())
@@ -55,8 +60,21 @@ def list_blogs(
     )
 
     items = []
+
     for blog, like_count in results:
         blog.like_count = like_count
+
+        # ✅ NEW: compute is_liked
+        if current_user:
+            is_liked = db.query(Like).filter(
+                Like.blog_id == blog.id,
+                Like.user_id == current_user.id
+            ).first() is not None
+        else:
+            is_liked = False
+
+        blog.is_liked = is_liked  # 👈 attach dynamically
+
         items.append(blog)
 
     return {
